@@ -1,0 +1,224 @@
+---
+title: "Visualize"
+author: "Quentin Stoyel"
+date: "6/28/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Visualize
+
+## Read Data
+```{r}
+# libraries
+library(here)
+library(readr)
+library(DT)
+
+# variables
+url_ac <- "https://oceanview.pfeg.noaa.gov/erddap/tabledap/cciea_AC.csv"
+csv_ac <- here("data/cciea_AC.csv")
+
+# read data, (from disk), use url ac to read from web
+d_ac        <- read_csv(csv_ac, col_names = F, skip = 2)
+names(d_ac) <- names(read_csv(csv_ac))
+
+# show data
+datatable(d_ac)
+
+```
+
+
+## Plot with ggplot2
+
+### geom_line()
+Set up data, grab one x and y column, and get rid of nans:
+```{r}
+
+library(dplyr)
+library(ggplot2)
+
+d_coast <- d_ac %>% 
+  # select columns
+  select(time, total_fisheries_revenue_coastwide) %>%
+  # filter 
+  filter(!is.na(total_fisheries_revenue_coastwide))
+datatable(d_coast)
+
+```
+
+
+Plot this data:
+```{r}
+p_coast <- d_coast %>%
+  ggplot(aes(x = time, y = total_fisheries_revenue_coastwide)) +
+  geom_line()
+
+p_coast + theme_classic()
+```
+
+### Trend line + smooth
+
+```{r}
+p_coast + geom_smooth(method = "loess") + theme_classic()
+
+```
+
+### Geom Histogram
+```{r}
+d_coast %>% 
+  ggplot(aes(x=total_fisheries_revenue_coastwide)) +
+  geom_histogram(binwidth = 100) + theme_classic()
+
+
+```
+
+### Series Line Plot
+
+
+
+```{r}
+
+library(tidyr)
+library(stringr)
+
+# prep data, select/mutate columns, pivot longer:
+d_rgn <- d_ac %>%
+  select(time,
+         starts_with("total_fisheries_revenue")) %>%
+  select(-total_fisheries_revenue_coastwide) %>%
+  pivot_longer(-time) %>%
+  mutate(
+    region = name %>% 
+      str_replace("total_fisheries_revenue_", "") %>%
+      str_to_upper()) %>%
+  filter(!is.na(value)) %>%
+  select(time, region, value)
+  
+p_rgn <- d_rgn %>% 
+  ggplot(aes(x=time, y=value, group=region, color=region)) +
+  geom_line()
+         
+  
+
+# add labels:
+p_rgn <- p_rgn +
+  labs(
+    title = "Fisheries Revenue",
+    x = "Year",
+    y = "Millions $ (year 2015)",
+    color = "Region",
+  )
+
+p_rgn + theme_classic()
+
+```
+
+### Facet Wrap
+
+```{r}
+p_rgn + facet_wrap(vars(region)) + theme_classic()
+```
+
+### Discrete Variables (Bar Plot)
+
+```{r}
+library(glue)
+library(lubridate)
+
+yr_max <- year(max(d_rgn$time))
+
+d_rgn %>%
+  filter(year(time) == yr_max) %>%
+  # passing discrete region as x instead of continuous time
+  ggplot(aes(x = region, y = value, fill = region)) + 
+  geom_col() +
+  labs(
+    title = glue("Fisheries Revenue for {yr_max}"),
+    x = "Region",
+    y = "Millions $ (year 2015)",
+    fill = "Reigon"
+  ) + theme_classic()
+  
+# Similar variations:
+
+d_rgn %>% 
+  # setup aesthetics
+  ggplot(aes(x = region, y = value, fill = region)) +
+  # add geometry
+  geom_boxplot() +
+  # add labels
+  labs(
+    title  = "Fisheries Revenue Variability",
+    x      = "Region",
+    y      = "Millions $ (year 2015)") +
+  # drop legend since redundant with x axis
+  theme(
+    legend.position = "none")
+
+
+p_rgn_violin <- d_rgn %>% 
+  # setup aesthetics
+  ggplot(aes(x = region, y = value, fill = region)) +
+  # add geometry
+  geom_violin() +
+  # add labels
+  labs(
+    title  = "Fisheries Revenue Variability",
+    x      = "Region",
+    y      = "Millions $ (year 2015)") +
+  # drop legend since redundant with x axis
+  theme(
+    legend.position = "none")
+p_rgn_violin
+
+```
+
+### Fixing the Theme
+
+```{r}
+p_rgn_violin + theme_classic()
+```
+
+### Interactive plots
+
+```{r}
+
+plotly::ggplotly(p_rgn)
+
+```
+
+### Dygraphs
+
+```{r}
+library(dygraphs)
+
+# needs wide data: 1 year -> 3 region values
+
+d_rgn_wide <- d_rgn %>%
+  mutate(Year = year(time)) %>% 
+  select(Year, region, value) %>%
+  pivot_wider(
+    names_from = region,
+    values_from = value)
+datatable(d_rgn_wide)
+
+d_rgn_wide %>%
+  dygraph() %>%
+  dyRangeSelector()
+
+
+```
+
+
+
+
+
+
+
+
