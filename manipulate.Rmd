@@ -27,10 +27,10 @@ dir_data <- "data"
 csv <- file.path(dir_data, basename(csv_url))
 
 # create directory
-dir.create(dir_data)
+# dir.create(dir_data)
 
 # download file
-download.file(csv_url, csv)
+# download.file(csv_url, csv)
 ```
 
 ### Read table `read.csv()`
