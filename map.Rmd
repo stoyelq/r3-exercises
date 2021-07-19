@@ -15,25 +15,32 @@ knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
 
 ```{r}
 library(librarian)
+library(sf)
 
+# load/install data set package
 shelf(
   NOAA-EDAB/ecodata,
-  sf)
+  )
 
 ```
 
 ## Get Spatial Data:
 
 ```{r}
+# take a look at the spatial data, simple feature that contains 4 multipolygons
 ecodata::epu_sf
 
+# assign to a var and set the coordinate system
 epu_sf <- ecodata::epu_sf %>% 
   st_transform(4326)
+
+class(epu_sf)
 
 # sample geometry (simple feature = sf)
 g1 <- epu_sf$geometry[1]
 
 # plot it:
+# plots all of the columns in the dataframe
 plot(epu_sf)
 
 plot(epu_sf["EPU"])
@@ -41,7 +48,7 @@ plot(epu_sf["EPU"])
 ```
 
 
-Where is this shape? 
+Where is this shape? Add it onto openstreetmaps plot.
 
 ```{r}
 library(mapview)
@@ -53,21 +60,23 @@ mapview(epu_sf)
 
 ```{r}
 library(leaflet)
+# nicer world map
 leaflet() %>% 
-  # addTiles() %>%
-  addProviderTiles(providers$Esri.OceanBasemap) %>%
-  addPolygons(data=epu_sf)
+  # addTiles() %>% # Base tiles
+  addProviderTiles(providers$Esri.OceanBasemap) %>% # fancy tiles
+  addPolygons(data=epu_sf) # pipe in our features
 
 ```
 
 
 ## Extract from ERDDAP
+Grab some surface temperature data and combo this with our features.
+
 
 ```{r}
-shelf(
-  here, 
-  rerddap
-)
+library(here)
+library(rerddap)
+
 # set a file path to data dir
 sst_gd_rds <- here("data/sst_gd.rds")
 
@@ -77,7 +86,7 @@ epu_bb
 
 ```
 
-Most methods in the sf package start with st. Residual from postgis methods, stood from space time.  
+Most methods in the sf package start with st. Residual from postgis methods, stood for space time.  
 
 ```{r}
 
@@ -95,25 +104,23 @@ if (!file.exists(sst_gd_rds)) {
     latitude = epu_bb[c("ymin", "ymax")])
   saveRDS(sst_gd, file=sst_gd_rds)
 }
-
+# save/read RDS are base r functions that act like pickles. (save/read an R object to a file)
 # read from file
 sst_gd <- readRDS(sst_gd_rds)
 
-
+# large raster of sst data.  Dates,lat-longs, and temps.  
+sst_gd
 ```
 
 
 Plot the data!
 
 ```{r}
-shelf(
-  dplyr,
-  ggplot2,
-  mapdata
-  
-)
+library(dplyr)
+library(ggplot2)
+library(mapdata)
 
-# coastline:
+# set coastline (raster):
 coast <- map_data(
   "worldHires",
   xlim = epu_bb[c("xmin", "xmax")],
@@ -122,11 +129,13 @@ coast <- map_data(
 )
 
 
+# only select most recent data 
 sst_df_last <- sst_gd$data %>%
     filter(time == max(time))
 
 # summary(sst_last)
 
+# data gets loaded onto the plot, but only shows after adding geom_tile(), which inherits the plot data
 ggplot(
   data = sst_df_last, 
   aes(x = lon, y = lat, fill = sst)) +
@@ -136,7 +145,7 @@ ggplot(
   geom_tile() +
   scale_fill_gradientn(
     colors = rerddap::colors$temperature, na.value = NA) +
-  theme_bw() + 
+  theme_bw() + # does not overide the color gradient
   ylab("Latitude") + 
   xlab("Longitude") +
   ggtitle("Latest SST")
@@ -147,15 +156,15 @@ ggplot(
 ## Extract sst for this raster time series:
 
 ```{r}
+library(purrr)
+library(raster)
+library(sp)
+library(tidyr)
 
-shelf(
-  purrr,
-  raster,
-  sp,
-  tidyr)
+# need to do this because raster also has a select
 select <- dplyr::select
 
-# Clean up data, make sure raster has equal sized lat/long ie no rectangles
+# Clean up data, make sure raster has equal sized lat/long ie no rectangles, by rounding lat/lons, set date to date object, dump NA's
 sst_tbl <- tibble(sst_gd$data) %>%
   mutate(
     # round b/c of uneven intervals
@@ -182,11 +191,47 @@ names(sst_stk) <- strftime(sst_tbl_mo$date, "sst_%Y.%m")
 raster::crs(sst_stk) <- 4326
 
 
+```
 
 
 
 
+```{r}
+shelf(stringr)
+
+epu_sst_avg <- raster::extract(sst_stk, epu_sf, fun = mean, na.rm = T)
+epu_sst_sd  <- raster::extract(sst_stk, epu_sf, fun = sd, na.rm = T)
+
+epu_sst_tbl <- rbind(
+  epu_sst_avg %>% 
+    as_tibble() %>% 
+    cbind(
+      EPU  = epu_sf$EPU,
+      stat = "mean") %>% 
+    pivot_longer(-c(EPU, stat)),
+  epu_sst_sd %>% 
+    as_tibble() %>% 
+    cbind(
+      EPU = epu_sf$EPU,
+      stat = "sd") %>% 
+    pivot_longer(-c(EPU, stat))) %>% 
+  mutate(
+    EPU  = as.character(EPU),
+    date = as.double(str_replace(name, "sst_", ""))) %>% 
+  select(-name) %>% 
+  pivot_wider(
+    names_from  = EPU, 
+    values_from = value)
+```
 
 
+
+```{r}
+shelf(dygraphs)
+
+epu_sst_tbl %>% 
+  filter(stat == "mean") %>% 
+  select(-stat) %>% 
+  dygraph()
 ```
 
